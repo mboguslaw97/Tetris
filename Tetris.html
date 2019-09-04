@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+canvas{
+	display: block;
+	margin: auto;
+	border: solid 5px #000066;
+}
+</style>
+<script>
+mouse = {
+	clicked: false,
+	x: null,
+	y: null
+};
+function getMousePos(e){
+    var rect = c.getBoundingClientRect();
+	mouse.x = e.clientX - rect.left;
+	mouse.y = e.clientY - rect.top;
+}
+document.addEventListener("mousemove", function(e){
+	getMousePos(e);
+});
+document.addEventListener("mousedown", function(e){
+	mousePos = getMousePos(e);
+	mouse.clicked = true;
+});
+document.addEventListener("mouseup", function(e){
+	mousePos = getMousePos(e);
+	mouse.clicked = false;
+});
+keystates = [];
+document.addEventListener("keydown", function(e){
+	keystates[e.keyCode] = true;
+});
+document.addEventListener("keyup", function(e){
+	delete keystates[e.keyCode];
+});
+
+
+function initResources(){
+	themeSong = new Audio("https://ia800504.us.archive.org/33/items/TetrisThemeMusic/Tetris.mp3");
+	themeSong.volume = 0.25;
+	themeSong.addEventListener('ended', function() {
+		this.currentTime = 0;
+		this.play();
+	}, false);
+	bleep1 = new Audio("bleep1.wav");
+	towerImg = new Image();
+	towerImg.src = "http://audiocookbook.org/wp-content/uploads/2008/12/tetris_castle.png";
+}
+initResources();
+function declareVars(){
+	black = "rgba(0, 0, 0, 1)";
+	yellow = "#FFFF00";
+	orange = "#CC6600";
+	red = "rgba(255, 0, 0, 1)";
+	green = "rgba(50, 255, 50, 1)";
+	brown = "#663300";
+	blue = "#0000FF";
+	purple = "rgba(150, 15, 100, 1)";
+	gray = "rgba(150, 150, 150, 1)";
+	white = "rgba(255, 255, 255, 1)";
+	bgc = black;
+	fgc = white;
+	font = {
+		size: {
+			min: "15px ",
+			medium: "25px ",
+			big: "35px ",
+			large: "45px ",
+			max: "75px "
+		},
+		name: ["monospace"]
+	};
+	canvas = {
+		w: 500,
+		h: 600
+	};
+	grid = {
+		isOn: true,
+		unit: 30,
+		x: 10,
+		y: 10,
+		unitsWide: 10,
+		unitsHigh:19
+	};
+	grid.w = grid.unitsWide * grid.unit;
+	grid.h = grid.unitsHigh * grid.unit;
+	grid.draw = function(){
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = blue;
+		var x=grid.x, y=grid.y, w=grid.w, h=grid.h, u=grid.unit;
+		ctx.strokeRect(x, y, w, h);
+		if(grid.isOn){
+			ctx.lineWidth = 0.5;
+			for(var i = x+u; i <= x+w-u; i += u){
+				ctx.beginPath();
+				ctx.moveTo(i, y);
+				ctx.lineTo(i, y+h);
+				ctx.stroke();
+			}
+			for(var i = y+u; i <= y+h-u; i += u){
+				ctx.beginPath();
+				ctx.moveTo(x, i);
+				ctx.lineTo(x+w, i);
+				ctx.stroke();
+			}
+		}
+	};
+	nextBlockWindow = {
+		w: 5 * grid.unit,
+		y: grid.y
+	};
+	nextBlockWindow.h = nextBlockWindow.w;
+	nextBlockWindow.x = grid.x + grid.w + (canvas.w - grid.x - grid.w - nextBlockWindow.w) / 2;
+	nextBlockWindow.draw = function(){
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = blue;
+		ctx.strokeRect(this.x, this.y, this.w, this.h);
+		ctx.fillStyle = white;
+		ctx.textAlign = "center";
+		ctx.font = font.size.min + font.name[0];
+		ctx.fillText("Next:", nextBlockWindow.x+nextBlockWindow.w/2, nextBlockWindow.y+10);
+	}
+	key = {
+		moveLeft: "A".charCodeAt(0),
+		moveRight: "D".charCodeAt(0),
+		moveDown: "S".charCodeAt(0),
+		rotate: "W".charCodeAt(0),
+		pause: "P".charCodeAt(0),
+	};
+	anims = [];
+	waitForAnim = false;
+	fps = 60;
+	timer = setTimeout(0); //declare timer?
+}
+declareVars();
+
+
+window.onload = function(){
+	c = document.getElementById("canvas");
+	ctx = c.getContext("2d");
+	ctx.textBaseline = "top";
+	initTitleScreen();
+};
+function initTitleScreen(){
+	mouse.clicked = false;
+	anims["title.y"] = new anim(150, 50);
+	anims["towerImg.x"] = new anim((canvas.w - towerImg.width) / 2, (canvas.w - towerImg.width) / 2);
+	anims["towerImg.y"] = new anim(250, canvas.h - towerImg.height - 10);
+	anims["directions.y"] = new anim(275 + towerImg.height, canvas.h + 10);
+	var time = 500;
+	anims["title.y"].calcVel(time);
+	anims["towerImg.x"].calcVel(time);
+	anims["towerImg.y"].calcVel(time);
+	anims["directions.y"].calcVel(time);
+	themeSong.play();
+	clearInterval(timer);
+	timer = setInterval(titleScreen, 1000/fps);
+}
+function titleScreen(){
+	ctx.fillStyle = bgc;
+	ctx.fillRect(0, 0, canvas.w, canvas.h);
+	ctx.textAlign = "center";
+	ctx.fillStyle = fgc;
+	ctx.font = font.size.max + font.name[0];
+	ctx.fillText("Tetris", canvas.w/2, anims["title.y"].pos);
+	ctx.drawImage(towerImg, anims["towerImg.x"].pos, anims["towerImg.y"].pos);
+	ctx.font = font.size.min + font.name[0];
+	ctx.fillText("click to continue", canvas.w/2, anims["directions.y"].pos);
+	if(mouse.clicked){
+		ctx.font = font.size.large + font.name[0];
+		var vel = 15;
+		var txt = "Play";
+		anims["play.x"] = new anim(-ctx.measureText(txt).width, canvas.w/2, vel);
+		var txt = "Options";
+		anims["options.x"] = new anim(-ctx.measureText(txt).width, canvas.w/2, vel);
+		clearInterval(timer);
+		timer = setInterval(titleScreenAnim, 1000/fps);
+	}
+}
+function titleScreenAnim(){
+	ctx.fillStyle = bgc;
+	ctx.fillRect(0, 0, canvas.w, canvas.h);
+	ctx.fillStyle = fgc;
+	ctx.textAlign = "center";
+	ctx.font = font.size.max + font.name[0];
+	ctx.fillText("Tetris", canvas.w/2, anims["title.y"].pos);
+	ctx.drawImage(towerImg, anims["towerImg.x"].pos, anims["towerImg.y"].pos);
+	ctx.font = font.size.min + font.name[0];
+	ctx.fillText("click to continue", canvas.w/2, anims["directions.y"].pos);
+	ctx.font = font.size.large + font.name[0];
+	ctx.fillText("Play", anims["play.x"].pos, 200);
+	ctx.fillText("Options", anims["options.x"].pos, 275);
+	var doneCount = 0;
+	for(var i in anims){
+		if(anims[i].done) doneCount++;
+	}
+	if(doneCount <= 3){
+		anims["title.y"].move();
+		anims["towerImg.x"].move();
+		anims["towerImg.y"].move();
+		anims["directions.y"].move();
+	}
+	else if(doneCount == 4){
+		anims["play.x"].move();
+	}
+	else if(doneCount == 5){
+		anims["options.x"].move();
+	}
+	else{
+		clearInterval(timer);
+		timer = setInterval(mainMenu, 1000/fps);
+	}	
+}
+function mainMenu(){
+	ctx.fillStyle = bgc;
+	ctx.fillRect(0, 0, canvas.w, canvas.h);
+	ctx.fillStyle = fgc;
+	ctx.textAlign = "center";
+	ctx.font = font.size.max + font.name[0];
+	ctx.fillText("Tetris", canvas.w/2, anims["title.y"].pos);
+	ctx.font = font.size.large + font.name[0];
+	button("Play", anims["play.x"].pos, 200, initGame);
+	button("Options", anims["options.x"].pos, 275, initOptions);
+	ctx.drawImage(towerImg, anims["towerImg.x"].pos, anims["towerImg.y"].pos);
+}
+function initGame(){
+	bricks = [];
+	for(var i=0; i<grid.unitsWide; i++){
+		bricks[i] = new Array();
+	}
+	gameOver = false;
+	level = 1;
+	score = 0;
+	var i = Math.floor(Math.random() * blockTypes.length);
+	nextBlock = new blockTypes[i];
+	newBlock();
+	clearInterval(timer);
+	timer = setInterval(playGame, 1000/fps);
+}
+function playGame(){
+	activeBlock.update();
+	drawGame();
+	if(keystates[key.pause]){
+		pause();
+	}
+}
+function pause(){
+	mouse.clicked = false;
+	delete keystates[key.pause];
+	themeSong.pause();
+	clearInterval(timer);
+	timer = setInterval(function(){
+		ctx.fillStyle = bgc;
+		ctx.fillRect(0, 0, canvas.w, canvas.h);
+		grid.draw();
+		ctx.fillRect(grid.x, grid.y, grid.w, grid.h);
+		nextBlockWindow.draw();
+		ctx.fillStyle = bgc;
+		ctx.fillRect(nextBlockWindow.x, nextBlockWindow.y, nextBlockWindow.w, nextBlockWindow.h);
+		ctx.fillStyle = white;
+		ctx.font = font.size.large + font.name[0];
+		ctx.fillText("Game", grid.x+grid.w/2,grid.y-100+grid.h/2);
+		ctx.fillText("Paused", grid.x+grid.w/2,grid.y-50+grid.h/2);
+		ctx.font = font.size.medium + font.name[0];
+		button("Restart", grid.x+grid.w/2, grid.y+50+grid.h/2, function(){
+			themeSong.play();
+			initGame();
+		});
+		ctx.textAlign = "left";
+		ctx.font = font.size.medium + font.name[0];
+		var x = nextBlockWindow.x;
+		var y = nextBlockWindow.y+nextBlockWindow.h+50;
+		var dy = 50;
+		ctx.fillText("Level " + level, x, y);
+		ctx.fillText("Score " + score, x, y+dy);
+		ctx.font = font.size.big + font.name[0];
+		button("Menu", x, y+2*dy, initTitleScreen);
+		button("Unpause", x, y+3*dy, unpause);
+	ctx.drawImage(towerImg, canvas.w-nextBlockWindow.w-10, canvas.h-nextBlockWindow.h-10, nextBlockWindow.w, nextBlockWindow.h);
+		if(keystates[key.pause]){
+			unpause();
+		}
+	}, 1000/fps);
+}
+function unpause(){
+	mouse.clicked = false;
+	delete keystates[key.pause];
+	themeSong.play();
+	clearInterval(timer);
+	timer = setInterval(playGame, 1000/fps);
+}
+function newBlock(){
+	if(!gameOver){
+		activeBlock = nextBlock;
+		activeBlock.initDrop();
+		var i = Math.floor(Math.random() * blockTypes.length);
+		nextBlock = new blockTypes[i];
+	}
+}
+function checkFullRow(){
+	var rows = [];
+	for(var y=0; y<grid.unitsHigh; y++){
+		for(var x=0; x<grid.unitsWide; x++){
+			if(typeof bricks[x][y] != 'undefined'){
+				if(x==9){
+					rows.push(y);
+					score += 500;
+				}
+			}
+			else{
+				break;
+			}
+		}
+	}
+	if(rows.length > 0) clearRows(rows);
+}
+function clearRows(rows){
+	waitForAnim = true;
+	checkLevel();
+	var i = 0.5;
+	clearInterval(timer);
+	timer = setInterval(function(){
+		if(i > 4.5){
+			dropBlocks(rows);
+			clearInterval(timer);
+			timer = setInterval(playGame, 1000/fps);
+		}
+		else{
+			for(var j in rows){
+				delete bricks[4.5-i][rows[j]];
+				delete bricks[4.5+i][rows[j]];
+			}
+			drawGame();
+			i++;	
+		}
+	}, 50, rows);
+}
+function dropBlocks(rows){
+	for(var i in rows){
+		for(var y=rows[i]-1; y>=0; y--){
+			for(var x=0; x<grid.unitsWide; x++){
+				if(typeof bricks[x][y] != 'undefined'){
+					bricks[x][y].y++;
+					bricks[x][y+1] = bricks[x][y];
+					delete bricks[x][y];
+				}
+			}
+		}
+	}
+	waitForAnim = false;
+}
+function drawGame(){
+	ctx.fillStyle = bgc;
+	ctx.fillRect(0, 0, canvas.w, canvas.h);
+	grid.draw();
+	nextBlockWindow.draw();
+	activeBlock.draw();
+	nextBlock.drawAsNext();
+	for(var x=0; x<bricks.length; x++){
+		for(var y=0; y<bricks[x].length; y++){
+			if(bricks[x][y] != null){
+				bricks[x][y].draw();
+			}
+		}
+	}
+	ctx.fillStyle = white;
+	ctx.font = font.size.medium + font.name[0];
+	ctx.textAlign = "left";
+	var x = nextBlockWindow.x;
+	var y = nextBlockWindow.y+nextBlockWindow.h+50;
+	var dy = 50;
+	ctx.fillText("Level " + level, x, y);
+	ctx.fillText("Score " + score, x, y+dy);
+	ctx.font = font.size.big + font.name[0];
+	button("Menu", x, y+2*dy, initTitleScreen);
+	button("Pause", x, y+3*dy, pause);
+	ctx.drawImage(towerImg, canvas.w-nextBlockWindow.w-10, canvas.h-nextBlockWindow.h-10, nextBlockWindow.w, nextBlockWindow.h);
+}
+function drawGameOver(){
+	clearInterval(timer);
+	timer = setInterval(function(){
+		drawGame();
+		ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+		ctx.fillRect(grid.x, grid.y, grid.w, grid.h);
+		ctx.textAlign = "center";
+		ctx.fillStyle = white;
+		ctx.fillText("Game Over", grid.x+grid.w/2, grid.h/2 - 75);
+		ctx.font = font.size.medium + font.name[0];
+		button("New Game", grid.x+grid.w/2, grid.h/2, initGame);		
+	}, 1000/fps);
+}
+function anim(pos, end, vel){
+	this.pos = pos;
+	this.end = end;
+	this.vel = vel;
+	this.done = false;
+	this.calcVel = function(time){
+		var frames = time / (1000 / fps);
+		this.vel = vel > 0 ? vel : (end - pos) / frames;
+	}
+	this.move = function(){
+		if(this.end - Math.abs(this.vel) <= this.pos && this.pos <= this.end + Math.abs(this.vel)){
+			this.pos = this.end;
+			this.done = true;
+		}
+		else{
+			this.pos += this.vel;
+		}
+	}
+}
+function checkLevel(){
+	var i = Math.floor(score / 5000);
+	if(i+1 > level) level++;
+}
+
+function block(){
+	this.update = function(){
+		if(keystates[key.moveLeft]){
+			for(var i in this.bricks){
+				this.bricks[i].x--;
+			}
+			var isLegal = this.checkWallCol() && this.checkBrickCol();
+			if(!isLegal){
+				for(var i in this.bricks){
+					this.bricks[i].x++;
+				}
+			}
+			delete keystates[key.moveLeft];
+		}
+		if(keystates[key.moveRight]){
+			for(var i in this.bricks){
+				this.bricks[i].x++;
+			}
+			var isLegal = this.checkWallCol() && this.checkBrickCol();
+			if(!isLegal){
+				for(var i in this.bricks){
+					this.bricks[i].x--;
+				}
+			}
+			delete keystates[key.moveRight];
+		}
+		if(keystates[key.rotate]){
+			this.rotate();
+			delete keystates[key.rotate];
+		}
+		if(keystates[key.moveDown]){
+			for(var i in this.bricks){
+				this.bricks[i].y++;
+			}
+			isLegal = this.checkFloorCol() && this.checkBrickCol();
+			if(!isLegal){
+				for(var i in this.bricks){
+					this.bricks[i].y--;
+				}
+			}
+			else{
+				score += 10;
+				checkLevel();
+			}
+		}
+		this.fall();
+	};
+	this.draw = function(){
+		for(var i in this.bricks){
+			this.bricks[i].draw();
+		}
+	};
+	this.drawAsNext = function(){
+		for(var i in this.bricks){
+			this.bricks[i].drawAsNext();
+		}
+	}
+	this.checkWallCol = function(){
+		for(var i in this.bricks){
+			if(this.bricks[i].x < 0 || this.bricks[i].x+1 > grid.unitsWide){
+				return false;
+			}
+		}
+		return true;
+	}
+	this.checkFloorCol = function(){
+		for(var i in this.bricks){
+			if(this.bricks[i].y >= grid.unitsHigh){
+				return false;
+			}
+		}
+		return true;
+	}
+	this.checkBrickCol = function(){
+		for(var i in this.bricks){
+			if(typeof bricks[this.bricks[i].x][this.bricks[i].y] != "undefined"){
+				return false;
+			}
+		}
+		return true;
+	}
+	this.rotate = function(){
+		var originalPos = [];
+		for(var i=0; i<4; i++){
+			originalPos[i] = {
+				x: this.bricks[i].x,
+				y: this.bricks[i].y
+			}
+		}
+		var center = this.findCenter();	
+		for(var i in this.bricks){
+			var offset = {
+				x: center.y - this.bricks[i].y,
+				y: this.bricks[i].x - center.x
+			}
+			this.bricks[i].x = center.x + offset.x;
+			this.bricks[i].y = center.y + offset.y;
+		}
+		var isLegal = this.checkWallCol() && this.checkFloorCol() && this.checkBrickCol();
+		if(isLegal) return;
+		var adjustments = [-1, 1, -2, 2];
+		for(var i=0; i<4; i++){
+			for(var j in this.bricks){
+				this.bricks[j].x += adjustments[i];
+			}
+			var isLegal = this.checkWallCol() && this.checkFloorCol() && this.checkBrickCol();
+			if(isLegal) return;
+			for(var j in this.bricks){
+				this.bricks[j].x -= adjustments[i];
+			}
+			for(var j in this.bricks){
+				this.bricks[j].y += adjustments[i];
+			}
+			var isLegal = this.checkWallCol() && this.checkFloorCol() && this.checkBrickCol();
+			if(isLegal) return;
+			for(var j in this.bricks){
+				this.bricks[j].y -= adjustments[i];
+			}
+		}
+		for(var i in this.bricks){
+			this.bricks[i].x = originalPos[i].x;
+			this.bricks[i].y = originalPos[i].y;
+		}
+	}
+	this.fallTimer = 0;
+	this.fall = function(){
+		if(this.fallTimer >= fps/(level+1)){
+			for(var i in this.bricks){
+				this.bricks[i].y++;
+			}
+			var isLegal = this.checkFloorCol() && this.checkBrickCol();
+			if(!isLegal){
+				for(var i in this.bricks){
+					this.bricks[i].y--;
+					if(this.bricks[i].y < 0){
+						gameOver = true;
+					}
+				}
+				if(gameOver){
+					drawGameOver();
+				}
+				else{
+					this.lock();
+					checkFullRow();	
+					newBlock();
+				}
+			}
+			this.fallTimer = 0;
+		}
+		this.fallTimer++;
+	}
+	this.lock = function(){
+		for(var i in this.bricks){
+			bricks[this.bricks[i].x][this.bricks[i].y] = this.bricks[i];
+		}
+	}
+}
+blockTypes = [];
+blockTypes[0] = function(){
+	//square block
+	var x = 1.5;
+	var y = 2.5;
+	var color = blue;
+	this.bricks = [
+		new brick(x, y, color),
+		new brick(x+1, y, color),
+		new brick(x, y-1, color),
+		new brick(x+1, y-1, color)
+	];
+	this.initDrop = function(){
+		var x = Math.floor((grid.unitsWide - 1) * Math.random());
+		var y = -1;
+		var color = blue;
+		this.bricks = [
+			new brick(x, y, color),
+			new brick(x+1, y, color),
+			new brick(x, y-1, color),
+			new brick(x+1, y-1, color)
+		];
+	}
+	this.findCenter = function(){
+		return {
+			x: (this.bricks[0].x + this.bricks[3].x) / 2,
+			y: (this.bricks[0].y + this.bricks[3].y) / 2
+		}
+	}
+};
+blockTypes[1] = function(){
+	//tall block
+	var x = 0.5;
+	var y = 2.0;
+	var color = red;
+	this.bricks = [
+		new brick(x, y, color),
+		new brick(x+1, y, color),
+		new brick(x+2, y, color),
+		new brick(x+3, y, color),
+	];
+	this.initDrop = function(){
+		var x = Math.floor((grid.unitsWide - 3) * Math.random());
+		var y = -1;
+		var color = red;
+		this.bricks = [
+			new brick(x, y, color),
+			new brick(x+1, y, color),
+			new brick(x+2, y, color),
+			new brick(x+3, y, color),
+		];
+	}
+	this.rotation = 0;
+	this.findCenter = function(){
+		if(this.rotation == 0){
+			this.rotation++;
+			return {
+				x: (this.bricks[1].x + this.bricks[2].x) / 2,
+				y: this.bricks[1].y - 1/2
+			}
+		}
+		else if(this.rotation == 1){
+			this.rotation++;
+			return {
+				x: this.bricks[1].x + 1/2,
+				y: (this.bricks[1].y + this.bricks[2].y) / 2
+			}
+		}
+		else if(this.rotation == 2){
+			this.rotation++;
+			return {
+				x: (this.bricks[1].x + this.bricks[2].x) / 2,
+				y: this.bricks[1].y + 1/2
+			}
+		}
+		else{
+			this.rotation = 0;
+			return {
+				x: this.bricks[1].x - 1/2,
+				y: (this.bricks[1].y + this.bricks[2].y) / 2
+			}
+		}
+	}
+};
+blockTypes[2] = function(){
+	//T block
+	var x = 1.0;
+	var y = 2.5;
+	var color = gray;
+	this.bricks = [
+		new brick(x, y, color),
+		new brick(x+1, y, color),
+		new brick(x+2, y, color),
+		new brick(x+1, y-1, color),
+	];
+	this.initDrop = function(){
+		var x = Math.floor((grid.unitsWide - 2) * Math.random());
+		var y = -1;
+		var color = gray;
+		this.bricks = [
+			new brick(x, y, color),
+			new brick(x+1, y, color),
+			new brick(x+2, y, color),
+			new brick(x+1, y-1, color),
+		];
+	}
+	this.findCenter = function(){
+		return {
+			x: (this.bricks[0].x + this.bricks[2].x) / 2,
+			y: this.bricks[1].y
+		}
+	}
+};
+blockTypes[3] = function(){
+	//L block
+	var x = 1.0;
+	var y = 2.5;
+	var color = green;
+	this.bricks = [
+		new brick(x, y, color),
+		new brick(x+1, y, color),
+		new brick(x+2, y, color),
+		new brick(x, y-1, color),
+	];
+	this.initDrop = function(){
+		var x = Math.floor((grid.unitsWide - 2) * Math.random());
+		var y = -1;
+		var color = green;
+		this.bricks = [
+			new brick(x, y, color),
+			new brick(x+1, y, color),
+			new brick(x+2, y, color),
+			new brick(x, y-1, color),
+		];
+	}
+	this.findCenter = function(){
+		return {
+			x: (this.bricks[1].x + this.bricks[3].x) / 2,
+			y: (this.bricks[1].y + this.bricks[3].y) / 2
+		}
+	}
+};
+blockTypes[4] = function(){
+	//backward L block
+	var x = 1.0;
+	var y = 2.0;
+	var color = yellow;
+	this.bricks = [
+		new brick(x, y, color),
+		new brick(x+1, y, color),
+		new brick(x+2, y, color),
+		new brick(x+2, y-1, color),
+	];
+	this.initDrop = function(){
+		var x = Math.floor((grid.unitsWide - 2) * Math.random());
+		var y = -1;
+		var color = yellow;
+		this.bricks = [
+			new brick(x, y, color),
+			new brick(x+1, y, color),
+			new brick(x+2, y, color),
+			new brick(x+2, y-1, color),
+		];
+	}
+	this.findCenter = function(){
+		return {
+			x: (this.bricks[1].x + this.bricks[3].x) / 2,
+			y: (this.bricks[1].y + this.bricks[3].y) / 2
+		}
+	}
+};
+blockTypes[5] = function(){
+	//Z block
+	var x = 1.0;
+	var y = 2.0;
+	var color = orange;
+	this.bricks = [
+		new brick(x, y, color),
+		new brick(x+1, y, color),
+		new brick(x+1, y+1, color),
+		new brick(x+2, y+1, color),
+	];
+	this.initDrop = function(){
+		var x = Math.floor((grid.unitsWide - 2) * Math.random());
+		var y = -1;
+		var color = orange;
+		this.bricks = [
+			new brick(x, y, color),
+			new brick(x+1, y, color),
+			new brick(x+1, y+1, color),
+			new brick(x+2, y+1, color),
+		];
+	}
+	this.findCenter = function(){
+		return {
+			x: (this.bricks[1].x + this.bricks[3].x) / 2,
+			y: (this.bricks[1].y + this.bricks[3].y) / 2
+		}
+	}
+};
+blockTypes[6] = function(){
+	//S block
+	var x = 1.0;
+	var y = 2.0;
+	var color = purple;
+	this.bricks = [
+		new brick(x, y+1, color),
+		new brick(x+1, y, color),
+		new brick(x+1, y+1, color),
+		new brick(x+2, y, color),
+	];
+	this.initDrop = function(){
+		var x = Math.floor((grid.unitsWide - 2) * Math.random());
+		var y = -1;
+		var color = purple;
+		this.bricks = [
+			new brick(x, y+1, color),
+			new brick(x+1, y, color),
+			new brick(x+1, y+1, color),
+			new brick(x+2, y, color),
+		];
+	}
+	this.findCenter = function(){
+		return {
+			x: (this.bricks[2].x + this.bricks[3].x) / 2,
+			y: (this.bricks[2].y + this.bricks[3].y) / 2
+		}
+	}
+};
+function brick(x, y, color){
+	this.x = x;
+	this.y = y;
+	this.color = color;
+	this.draw = function(){
+		if(this.y >= 0){
+			var x = grid.x + this.x * grid.unit;
+			var y = grid.y + this.y * grid.unit;
+			ctx.fillStyle = this.color;
+			ctx.fillRect(x, y, grid.unit, grid.unit);
+			ctx.strokeStyle = black;
+			ctx.lineWidth = 1;
+			ctx.strokeRect(x+2, y+2, grid.unit-4, grid.unit-4)
+		}
+	}
+	this.drawAsNext = function(){
+		var x = nextBlockWindow.x + this.x * grid.unit;
+		var y = nextBlockWindow.y + this.y * grid.unit;
+		ctx.fillStyle = this.color;
+		ctx.fillRect(x, y, grid.unit, grid.unit);
+		ctx.strokeStyle = black;
+		ctx.lineWidth = 1;
+		ctx.strokeRect(x+2, y+2, grid.unit-4, grid.unit-4);
+	}
+}
+for(var i in blockTypes){
+	blockTypes[i].prototype = new block();
+}
+
+
+function initOptions(){
+	clearInterval(timer);
+	timer = setInterval(options, 1000/fps);
+}
+function options(){
+	ctx.fillStyle = bgc;
+	ctx.fillRect(0, 0, canvas.w, canvas.h);
+	ctx.fillStyle = fgc;
+	ctx.textAlign = "left";
+	ctx.font = font.size.big + font.name[0];
+	var x=50, y=25, dy=50;
+	var options = ["Grid", "Music", "Sound FX", "Left", "Right", "Down", "Rotate", "Pause"];
+	for(var i=0; i<options.length; i++){
+		ctx.fillText(options[i], x, y + i*dy);
+	}
+	button("Menu", x, canvas.h-100, initTitleScreen);
+	var x=250;
+	ctx.fillStyle = !grid.isOn ? gray : fgc;
+	button("Off", x, y, function(){
+		grid.isOn = false;
+	});
+	ctx.fillStyle = themeSong.src == '' ? gray : fgc;
+	button("Off", x, y+dy, function(){
+		themeSong.pause();
+		themeSong = new Audio();
+	});
+	ctx.fillStyle = bleep1.src == '' ? gray : fgc;
+	button("Off", x, y+2*dy, function(){
+		bleep1 = new Audio();
+	});
+	y += 3*dy;
+	for(var k in key){
+		ctx.fillStyle = fgc;
+		var txt = "\"" + String.fromCharCode(key[k]) + "\"";
+		button(txt, x, y, function(){
+			oldKeystates = keystates;
+			clearInterval(timer);
+			timer = setInterval(changeCtrls, 1000/fps, k);
+		});
+		y += dy;
+	}
+	var x=350, y=25;
+	ctx.fillStyle = grid.isOn ? gray : fgc;
+	button("On", x, y, function(){
+		grid.isOn = true;
+	});
+	ctx.fillStyle = themeSong.src == '' ? fgc : gray;
+	button("On", x, y+dy, function(){
+		if(themeSong.src == ''){
+			themeSong = new Audio("https://ia800504.us.archive.org/33/items/TetrisThemeMusic/Tetris.mp3");
+			themeSong.volume = .25;
+			themeSong.play();
+		}
+	});
+	ctx.fillStyle = bleep1.src == '' ? fgc : gray;
+	button("On", x, y+2*dy, function(){
+		bleep1 = new Audio("bleep1.wav");
+	});
+	ctx.drawImage(towerImg, canvas.w-nextBlockWindow.w-10, canvas.h-nextBlockWindow.h-10, nextBlockWindow.w, nextBlockWindow.h);
+}
+function button(txt, x, y, newScene){
+	var w = ctx.measureText(txt).width;
+	var h = parseInt(ctx.font);
+	if(ctx.textAlign == "center"){	
+		var left = x - w/2;
+		var right = x + w/2;
+	}
+	else if(ctx.textAlign == "left"){
+		var left = x;
+		var right = x + w;
+	}
+	if(mouse.x >= left && mouse.x <= right && mouse.y >= y && mouse.y <= y + h){
+		ctx.fillStyle = gray;
+		ctx.fillText(txt, x, y);
+		ctx.fillStyle = fgc;
+		if(mouse.clicked && !waitForAnim){
+			bleep1.play();
+			newScene();
+		}
+	}
+	else{
+		ctx.fillText(txt, x, y);
+	}
+}
+function changeCtrls(ctrl){
+	for(var num in keystates){
+		if(typeof oldKeystates[num] == "undefined" || oldKeystates[num]){
+			key[ctrl] = num;
+			initOptions();
+		}
+	}
+}
+</script>
+</head>
+<body>
+	<canvas id="canvas" width=500 height=600></canvas>
+</body>
+</html>
